@@ -1,0 +1,98 @@
+---
+
+# install docker
+- hosts: all
+  remote_user: root
+  tasks:
+    # Necessary for getting the correct version on kde neon
+    - name: Get ubuntu version
+      shell: lsb_release -cs
+      register: lsb_release_output
+
+    - name: Create ubuntu version fact
+      set_fact: 
+        ubuntu_version: "{{ lsb_release_output.stdout }}"
+
+    - name: + Docker official GPG key
+      apt_key:
+        id: 0EBFCD88
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+    
+    - name: + Docker apt repository
+      apt_repository: 
+        repo: 'deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ubuntu_version }} stable'
+        state: present 
+        update_cache: yes
+
+    - name: Install docker
+      apt: 
+        name: docker-ce
+        state: present
+
+# install kubernetes
+- hosts: all
+  remote_user: root
+  tasks:
+    - name: + Kubernetes official GPG key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+    
+    - name: + Kubernetes apt repository
+      apt_repository: 
+        repo: 'deb https://apt.kubernetes.io/ kubernetes-xenial main'
+        state: present 
+        update_cache: yes
+
+    - name: Install kubetools
+      apt: 
+        pkg:
+          - kubelet=1.10.12-00
+          - kubeadm=1.10.12-00
+          - kubectl=1.10.12-00
+        # allow_downgrades: yes https://github.com/ansible/ansible/pull/33677
+        state: present
+
+    - name: Disable swap
+      command: swapoff -a
+
+
+# setup master
+- hosts: k8_master
+  remote_user: root
+  tasks:
+    - name: Reset state for now [FIX ME]
+      command: kubeadm reset
+
+    - name: Init master node [FIX DOCKER VERSION]
+      command: kubeadm init --ignore-preflight-errors=SystemVerification
+
+    - name: Get join command
+      shell: kubeadm token create --print-join-command
+      register: k8_join_command
+
+    - name: Ensures .kube dir exists
+      file: 
+        path: /root/.kube
+        state: directory
+
+    - name: Copy credentials to .kube
+      command: cp /etc/kubernetes/admin.conf /root/.kube/config
+
+    - name: Remove master isolation
+      shell: kubectl taint nodes --all node-role.kubernetes.io/master-
+
+    - name: Install Weave CNI plugin
+      shell: kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+
+# setup slaves
+- hosts: k8_slaves
+  remote_user: root
+  tasks:
+    - name: Reset state for now [FIX ME]
+      command: kubeadm reset
+
+    - name: Join master node [FIX DOCKER VERSION]
+      command: "{{ hostvars['k8_master']['k8_join_command'].stdout }} --ignore-preflight-errors=SystemVerification"
+

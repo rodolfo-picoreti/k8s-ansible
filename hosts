@@ -1,0 +1,6 @@
+
+k8_master ansible_host=10.10.0.7
+
+[k8_slaves]
+10.10.0.22
+10.10.0.28
